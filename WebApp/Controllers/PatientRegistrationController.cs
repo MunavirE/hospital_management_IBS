@@ -17,8 +17,6 @@ namespace WebApp.Controllers
     public class PatientRegistrationController : ControllerBase
     {
         private readonly string connectionString;
-        private object connection;
-        private int i;
 
         public PatientRegistrationController(IConfiguration configuration)
         {
