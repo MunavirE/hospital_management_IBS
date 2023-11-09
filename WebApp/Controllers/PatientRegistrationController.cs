@@ -1,16 +1,10 @@
-﻿using Microsoft.AspNetCore.Mvc;
-
-namespace WebApp.Controllers
+﻿namespace WebApp.Controllers
 {
     using Microsoft.AspNetCore.Mvc;
     using System;
     using System.Collections.Generic;
     using System.Data.SqlClient;
-    using System.Linq;
-    using System.Reflection;
-    using System.Reflection.Metadata.Ecma335;
     using WebApp.Models;
-    using static System.Net.Mime.MediaTypeNames;
 
     [Route("api/patient_registration")]
     [ApiController]
@@ -50,7 +44,7 @@ namespace WebApp.Controllers
                     }
                 }
                 //  return CreatedAtAction("GetPatient", new { id = patient.id }, patient);
-                return Ok();
+                return Ok("Patient Registration SUccessful");
             }
             catch (Exception ex)
             {
@@ -134,7 +128,8 @@ namespace WebApp.Controllers
                                 patient.Image = reader.GetString(9);
 
                             }
-                            else {
+                            else
+                            {
                                 return NotFound();
                             }
                         }
@@ -201,7 +196,7 @@ namespace WebApp.Controllers
                         command.Parameters.AddWithValue("@id", id);
                         command.ExecuteNonQuery();
                     }
-                  }
+                }
             }
             catch (Exception ex)
             {

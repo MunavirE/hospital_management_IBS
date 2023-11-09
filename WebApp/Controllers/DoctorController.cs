@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Org.BouncyCastle.Utilities;
 using System.Data.SqlClient;
 using WebApp.Models;
 
@@ -16,7 +15,7 @@ namespace WebApp.Controllers
             connectionString = configuration["ConnectionStrings:SqlServerDb"] ?? "";
         }
 
-        // POST: api/doctor_registration
+        // POST: api/doctor
         [HttpPost]
         public IActionResult CreateDoctor(Doctor doctor)
         {
@@ -25,9 +24,9 @@ namespace WebApp.Controllers
                 using (var connection = new SqlConnection(connectionString))
                 {
                     connection.Open();
-                    string insertDoctorSql = "INSERT INTO doctor_registration (email, [password], first_name, last_name, specialty) " +
+                    string insertDoctorSql = "INSERT INTO doctor (email, [password], first_name, last_name, specialty) " +
                                                             "VALUES (@email, @password, @firstName, @lastName, @specialty)";
-                    int doctorId;
+                    
                     using (var insertDoctorCommand = new SqlCommand(insertDoctorSql, connection))
                     {
                         insertDoctorCommand.Parameters.AddWithValue("@email", doctor.Email);
@@ -35,32 +34,10 @@ namespace WebApp.Controllers
                         insertDoctorCommand.Parameters.AddWithValue("@firstName", doctor.FirstName);
                         insertDoctorCommand.Parameters.AddWithValue("@lastName", doctor.LastName);
                         insertDoctorCommand.Parameters.AddWithValue("@specialty", doctor.Specialty);
-
-                        doctorId = (int)insertDoctorCommand.ExecuteScalar();
+                        // Ensure that insertDoctorCommand is not null and the connection is open
+                        insertDoctorCommand.ExecuteNonQuery();
                     }
 
-                    // Insert doctor's schedule data if provided
-                    if (doctor.Schedule != null && doctor.Schedule.Any())
-                    {
-                        foreach (var scheduleEntry in doctor.Schedule)
-                        {
-                            // Insert schedule entry for the doctor
-                            string insertScheduleSql = "INSERT INTO doctor_schedule (doctor_id, day, start_time, end_time) " +
-                                                       "VALUES (@doctorId, @day, @startTime, @endTime)";
-
-                            using (var insertScheduleCommand = new SqlCommand(insertScheduleSql, connection))
-                            {
-                                // Assuming doctorId is obtained from the inserted doctor's ID (you may need to query it)
-                                // Adjust the table and column names as per your database schema
-                                insertScheduleCommand.Parameters.AddWithValue("@doctorId", doctorId);
-                                insertScheduleCommand.Parameters.AddWithValue("@day", scheduleEntry.Day);
-                                insertScheduleCommand.Parameters.AddWithValue("@startTime", scheduleEntry.StartTime);
-                                insertScheduleCommand.Parameters.AddWithValue("@endTime", scheduleEntry.EndTime);
-
-                                insertScheduleCommand.ExecuteNonQuery();
-                            }
-                        }
-                    }
                 }
 
                 return Ok("Doctor registration successful");
@@ -72,6 +49,41 @@ namespace WebApp.Controllers
             }
         }
 
+        [HttpPost("schedule")]
+        public IActionResult ScheduleDoctor([FromBody] ScheduleEntry scheduleEntry)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    connection.Open();
+
+                    // Construct the INSERT SQL query for scheduling a doctor
+                    string sql = "INSERT INTO doctor_schedule (doctor_id, day, start_time, end_time) " +
+                                 "VALUES (@doctorId, @day, @startTime, @endTime)";
+
+                    using (var command = new SqlCommand(sql, connection))
+                    {
+                        command.Parameters.AddWithValue("@doctorId",scheduleEntry.DoctorId);
+                        command.Parameters.AddWithValue("@day", scheduleEntry.Day);
+                        command.Parameters.AddWithValue("@startTime", scheduleEntry.StartTime);
+                        command.Parameters.AddWithValue("@endTime", scheduleEntry.EndTime);
+
+                        command.ExecuteNonQuery();
+                    }
+                }
+
+                return Ok("Doctor scheduled successfully");
+            }
+            catch (Exception ex)
+            {
+                // Handle any exceptions and return an error response
+                ModelState.AddModelError("Doctor Scheduling", "Sorry, but we have an exception: " + ex.Message);
+                return BadRequest(ModelState);
+            }
+        }
+
+
         [HttpGet]
         public IActionResult GetDoctorsWithSchedules()
         {
@@ -82,27 +94,50 @@ namespace WebApp.Controllers
                 using (var connection = new SqlConnection(connectionString))
                 {
                     connection.Open();
-                    string sql = "SELECT * FROM doctor";
+                    string sql = "SELECT D.id, D.email, D.[password], D.first_name, D.last_name, D.specialty, S.day, S.start_time, S.end_time " +
+                                 "FROM doctor D " +
+                                 "LEFT JOIN doctor_schedule S ON D.id = S.doctor_id";
 
                     using (var command = new SqlCommand(sql, connection))
+                    using (var reader = command.ExecuteReader())
                     {
-                        using (var reader = command.ExecuteReader())
+                        int currentDoctorId = 0;
+                        Doctor doctor = null;
+
+                        while (reader.Read())
                         {
-                            while (reader.Read())
+                            int doctorId = reader.GetInt32(0);
+
+                            if (doctor == null || doctorId != currentDoctorId)
                             {
-                                Doctor doctor = new Doctor
+                                // Create a new Doctor object
+                                doctor = new Doctor
                                 {
-                                    Id = reader.GetInt32(0),
+                                    Id = doctorId,
                                     Email = reader.GetString(1),
                                     Password = reader.GetString(2),
                                     FirstName = reader.GetString(3),
                                     LastName = reader.GetString(4),
                                     Specialty = reader.GetString(5),
+                                    Schedule = new List<ScheduleEntry>()
                                 };
 
-                                doctor.Schedule = GetDoctorSchedule(connection, doctor.Id); // Retrieve schedule data
-
                                 doctors.Add(doctor);
+                                currentDoctorId = doctorId;
+                            }
+
+                            // Add schedule entry to the current Doctor's Schedule
+                            if (!reader.IsDBNull(6))
+                            {
+                                ScheduleEntry scheduleEntry = new ScheduleEntry
+                                {
+                                    DoctorId=currentDoctorId,
+                                    Day = reader.GetString(6),
+                                    StartTime = reader.IsDBNull(7) ? null : reader.GetString(7),
+                                    EndTime = reader.IsDBNull(8) ? null : reader.GetString(8)
+                                };
+
+                                doctor.Schedule.Add(scheduleEntry);
                             }
                         }
                     }
@@ -117,35 +152,6 @@ namespace WebApp.Controllers
             return Ok(doctors);
         }
 
-        private List<ScheduleEntry> GetDoctorSchedule(SqlConnection connection, int doctorId)
-        {
-            List<ScheduleEntry> schedule = new List<ScheduleEntry>();
-
-            // Modify the query to retrieve schedule entries for the specific doctor
-            string scheduleSql = "SELECT day, start_time, end_time FROM doctor_schedule WHERE doctor_id = @doctorId";
-
-            using (var scheduleCommand = new SqlCommand(scheduleSql, connection))
-            {
-                scheduleCommand.Parameters.AddWithValue("@doctorId", doctorId);
-
-                using (var scheduleReader = scheduleCommand.ExecuteReader())
-                {
-                    while (scheduleReader.Read())
-                    {
-                        ScheduleEntry scheduleEntry = new ScheduleEntry
-                        {
-                            Day = scheduleReader.GetString(0),
-                            StartTime = scheduleReader.IsDBNull(1) ? null : scheduleReader.GetString(1),
-                            EndTime = scheduleReader.IsDBNull(2) ? null : scheduleReader.GetString(2)
-                        };
-
-                        schedule.Add(scheduleEntry);
-                    }
-                }
-            }
-
-            return schedule;
-        }
 
         // PUT: api/doctor_registration/{id}
         [HttpPut("{id}")]

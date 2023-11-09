@@ -22,19 +22,6 @@ namespace WebApp.Models
         [Required]
         public string Specialty { get; set; }
 
-        public List<ScheduleEntry> Schedule { get; set; }
-    }
-
-    public class ScheduleEntry
-    {
-        [Required]
-        [EnumDataType(typeof(DayOfWeek))]
-        public string Day { get; set; }
-
-        [MaxLength(8)] // Assuming a format like "HH:mm tt"
-        public string StartTime { get; set; }
-
-        [MaxLength(8)] // Assuming a format like "HH:mm tt"
-        public string EndTime { get; set; }
+        public List<ScheduleEntry>? Schedule { get; set; }
     }
 }
